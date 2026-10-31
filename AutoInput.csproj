@@ -5,10 +5,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>1.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AutoInputChecks</_Parameter1>
+    </AssemblyAttribute>
     <EmbeddedResource Include="Assets\app.ico" LogicalName="AutoInput.app.ico" />
   </ItemGroup>
 </Project>

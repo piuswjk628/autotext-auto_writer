@@ -13,11 +13,20 @@ static class Program
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) =>
+        {
+            foreach (var form in Application.OpenForms.OfType<MainForm>()) form.StopForError();
+            ErrorLog.Write(e.Exception, "화면 처리 오류");
+            MessageBox.Show("오류가 발생했습니다. 도움말의 오류 로그를 확인한 뒤 프로그램을 다시 실행하세요.", "문서 자동 입력");
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => { if (e.ExceptionObject is Exception ex) ErrorLog.Write(ex, "처리되지 않은 오류"); };
+        try { Application.Run(new MainForm()); }
+        catch (Exception ex) { ErrorLog.Write(ex, "프로그램 시작"); MessageBox.Show("프로그램을 시작하지 못했습니다. AutoInput 오류 로그를 확인해 주세요.", "문서 자동 입력"); }
     }
 }
 
-sealed class MainForm : Form
+sealed partial class MainForm : Form
 {
     readonly TextBox preview = new() { Multiline = true, ScrollBars = ScrollBars.Both, AcceptsTab = true, WordWrap = false, Dock = DockStyle.Fill };
     readonly NumericUpDown delay = new() { Minimum = 0, Maximum = decimal.MaxValue / 1000000, Value = 5, Width = 110, ThousandsSeparator = true };
@@ -27,6 +36,7 @@ sealed class MainForm : Form
     readonly System.Windows.Forms.Timer estimateTimer = new() { Interval = 500 };
     int remainingCharacters, activeGap;
     decimal startupRemaining;
+    internal Action<string> SendCharacter = Native.TypeText;
     readonly Button start = new() { Text = "시작 (F8)", AutoSize = true };
     readonly Button choose = new() { Text = "TXT / DOCX 선택", AutoSize = true };
     readonly Button pause = new() { Text = "일시정지 (F10)", AutoSize = true, Enabled = false };
@@ -41,8 +51,8 @@ sealed class MainForm : Form
     readonly ToolStripMenuItem minimizeOnStart = new("입력 시작 시 창 최소화") { CheckOnClick = true };
     readonly ToolStripMenuItem fontSizeMenu = new("글자 크기");
     int editorFontSize = 12;
-    Font? ownedEditorFont;
-    static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoInput", "settings.json");
+    readonly List<Font> ownedEditorFonts = new();
+    static string SettingsPath => Path.Combine(AppPaths.Root, "settings.json");
 
     public MainForm()
     {
@@ -76,16 +86,17 @@ sealed class MainForm : Form
         Controls.Add(menu);
         MainMenuStrip = menu;
         LoadSettings();
+        InitializeFeatures(information, options);
         ApplyTheme();
         choose.Click += (_, _) => LoadDocument();
         start.Click += async (_, _) => await StartInput();
         stop.Click += (_, _) => cancellation?.Cancel();
         pause.Click += (_, _) => TogglePause();
-        estimateTimer.Tick += (_, _) => UpdateEstimate();
+        estimateTimer.Tick += (_, _) => { UpdateEstimate(); UpdateProgress(); SaveCheckpoint(); };
         estimateTimer.Start();
         preview.TextChanged += (_, _) => UpdateEstimate();
         UpdateEstimate();
-        FormClosing += (_, _) => { estimateTimer.Stop(); estimateTimer.Dispose(); SaveSettings(); closing = true; cancellation?.Cancel(); };
+        FormClosing += (_, _) => { SaveCheckpoint(true); estimateTimer.Stop(); SaveSettings(); closing = true; lifetime.Cancel(); cancellation?.Cancel(); };
     }
 
     void BuildMenu()
@@ -107,7 +118,7 @@ sealed class MainForm : Form
         help.DropDownItems.Add("프로그램 정보", null, (_, _) =>
         {
             if (cancellation != null && !paused) TogglePause();
-            MessageBox.Show(this, "문서 자동 입력\nC# / Windows Forms\nTXT·DOCX 키보드 직접 입력 도구", "프로그램 정보");
+            MessageBox.Show(this, $"문서 자동 입력 v{UpdateService.CurrentVersion}\nC# / Windows Forms\nTXT·DOCX 키보드 직접 입력 도구", "프로그램 정보");
         });
         var settings = new ToolStripMenuItem("설정");
         settings.DropDownItems.AddRange([darkMode, wordWrap, alwaysOnTop, minimizeOnStart, fontSizeMenu, new ToolStripSeparator()]);
@@ -140,11 +151,16 @@ sealed class MainForm : Form
         editorFontSize = size;
         // Inherited WinForms fonts can be shared by unrelated controls.
         // Release only fonts this form explicitly created for the editor.
-        Font? previous = ownedEditorFont;
+        if (preview.Font.Name == "맑은 고딕" && preview.Font.SizeInPoints == size)
+        {
+            foreach (ToolStripMenuItem item in fontSizeMenu.DropDownItems) item.Checked = (int)item.Tag! == size;
+            return;
+        }
         var replacement = new Font("맑은 고딕", size);
         preview.Font = replacement;
-        ownedEditorFont = replacement;
-        previous?.Dispose();
+        // WinForms may retain an equal font instead of replacing it. Keep our
+        // font instances alive until all controls have been destroyed.
+        ownedEditorFonts.Add(replacement);
         foreach (ToolStripMenuItem item in fontSizeMenu.DropDownItems)
             item.Checked = (int)item.Tag! == size;
     }
@@ -155,8 +171,9 @@ sealed class MainForm : Form
         if (disposing)
         {
             estimateTimer.Dispose();
-            ownedEditorFont?.Dispose();
-            ownedEditorFont = null;
+            lifetime.Cancel();
+            foreach (var font in ownedEditorFonts) font.Dispose();
+            ownedEditorFonts.Clear();
         }
     }
 
@@ -173,12 +190,14 @@ sealed class MainForm : Form
             wordWrap.Checked = settings.WordWrap;
             alwaysOnTop.Checked = settings.AlwaysOnTop;
             minimizeOnStart.Checked = settings.MinimizeOnStart;
+            saveWorkEnabled = settings.SaveWork;
+            checkUpdatesOnStart = settings.CheckUpdatesOnStart;
             SetEditorFont(new[] { 10, 12, 14, 16, 18, 22 }.Contains(settings.FontSize) ? settings.FontSize : 12);
             delay.Value = Math.Clamp(settings.Delay, delay.Minimum, delay.Maximum);
             interval.Value = Math.Clamp(settings.Interval, 1, 1000);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        { status.Text = "설정을 읽지 못해 기본 설정으로 시작합니다."; }
+        { ErrorLog.Write(ex, "설정 불러오기"); status.Text = "설정을 읽지 못해 기본 설정으로 시작합니다."; }
         finally { loadingSettings = false; }
     }
 
@@ -192,11 +211,12 @@ sealed class MainForm : Form
             File.WriteAllText(temporary, JsonSerializer.Serialize(new UserSettings {
                 DarkMode = darkMode.Checked, WordWrap = wordWrap.Checked,
                 AlwaysOnTop = alwaysOnTop.Checked, MinimizeOnStart = minimizeOnStart.Checked, FontSize = editorFontSize,
+                SaveWork = saveWorkEnabled, CheckUpdatesOnStart = checkUpdatesOnStart,
                 Delay = delay.Value, Interval = (int)interval.Value }));
             File.Move(temporary, SettingsPath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { status.Text = "설정을 저장하지 못했습니다. 현재 실행에는 적용됩니다."; }
+        { ErrorLog.Write(ex, "설정 저장"); status.Text = "설정을 저장하지 못했습니다. 현재 실행에는 적용됩니다."; }
     }
 
     void ApplyTheme()
@@ -248,9 +268,10 @@ sealed class MainForm : Form
     {
         if (m.Msg == 0x0312)
         {
-            if (m.WParam.ToInt32() == 1) _ = StartInput();
-            else if (m.WParam.ToInt32() == 4) TogglePause();
-            else cancellation?.Cancel();
+            int key = m.WParam.ToInt32();
+            if (key == 1 && !modalOpen && Native.IsWindowEnabled(Handle)) _ = StartInput();
+            else if (key == 4 && !modalOpen && Native.IsWindowEnabled(Handle)) TogglePause();
+            else if (key is 2 or 3) cancellation?.Cancel();
         }
         base.WndProc(ref m);
     }
@@ -259,8 +280,8 @@ sealed class MainForm : Form
     {
         using var dialog = new OpenFileDialog { Filter = "문서|*.txt;*.docx" };
         if (dialog.ShowDialog() != DialogResult.OK) return;
-        try { preview.Text = ReadDocument(dialog.FileName); Text = "문서 자동 입력 — " + Path.GetFileName(dialog.FileName); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "파일 읽기 실패"); }
+        try { preview.Text = ReadDocument(dialog.FileName); documentName = Path.GetFileName(dialog.FileName); Text = "문서 자동 입력 — " + documentName; SaveCheckpoint(true); }
+        catch (Exception ex) { ReportError(ex, "파일 읽기 실패"); }
     }
 
     internal static string ReadDocument(string path)
@@ -296,6 +317,7 @@ sealed class MainForm : Form
             resumeAt = Environment.TickCount64 + delay.Value * 1000;
             status.Text = "재개 대기 중 · 대상 입력창을 클릭하세요.";
         }
+        SaveCheckpoint(true);
     }
 
     async Task WaitUntilReady(CancellationToken token)
@@ -317,7 +339,8 @@ sealed class MainForm : Form
         {
             int length = preview.Text.Replace("\r\n", "\n").Replace('\r', '\n').EnumerateRunes().Count();
             if (length == 0) { estimate.Text = "예상 완료: 내용을 불러오면 표시됩니다."; return; }
-            seconds = delay.Value + length * interval.Value / 1000;
+            int remaining = SavedWork.Normalize(preview.Text)[Math.Clamp(checkpointOffset, 0, SavedWork.Normalize(preview.Text).Length)..].EnumerateRunes().Count();
+            seconds = delay.Value + remaining * interval.Value / 1000;
         }
         else
         {
@@ -338,22 +361,31 @@ sealed class MainForm : Form
         return (days > 0 ? $"{days:N0}일 " : "") + $"{decimal.Floor(seconds % 86400 / 3600):00}:{decimal.Floor(seconds % 3600 / 60):00}:{seconds % 60:00}";
     }
 
-    async Task StartInput()
+    async Task StartInput(bool fromSaved = false)
     {
-        if (cancellation != null || closing) return;
+        if (cancellation != null || closing || modalOpen) return;
         string text = preview.Text.Replace("\r\n", "\n").Replace('\r', '\n');
         if (text.Length == 0) { status.Text = "파일을 선택하거나 내용을 입력하세요."; return; }
+        int offset = fromSaved ? new SavedWork(text, checkpointOffset, documentName).Validate().Offset : 0;
+        if (offset >= text.Length) return;
+        checkpointOffset = offset;
+        inputSnapshot = text;
         using var cts = new CancellationTokenSource();
         cancellation = cts;
         paused = false;
         resumeAt = 0;
         pause.Enabled = true;
         start.Enabled = choose.Enabled = false;
+        restore.Enabled = false;
+        preview.ReadOnly = true;
         decimal wait = delay.Value;
         int gap = (int)interval.Value;
         startupRemaining = wait;
-        remainingCharacters = text.EnumerateRunes().Count();
+        remainingCharacters = text[offset..].EnumerateRunes().Count();
         activeGap = gap;
+        saveWorkDirty = true;
+        SaveCheckpoint(true);
+        UpdateProgress();
         if (minimizeOnStart.Checked) WindowState = FormWindowState.Minimized;
         bool escape = Native.RegisterHotKey(Handle, 3, 0x4000, 0x1b);
         try
@@ -365,33 +397,37 @@ sealed class MainForm : Form
                 await Task.Delay(1000, cts.Token);
                 startupRemaining = sec - 1;
             }
-            int count = 0;
-            foreach (var rune in text.EnumerateRunes())
+            int count = offset;
+            foreach (var rune in text[offset..].EnumerateRunes())
             {
                 await WaitUntilReady(cts.Token);
-                Native.TypeText(rune.ToString());
+                SendCharacter(rune.ToString());
                 remainingCharacters--;
                 count += rune.Utf16SequenceLength;
+                checkpointOffset = count;
+                saveWorkDirty = true;
                 if (count % 10 == 0) status.Text = $"입력 중: {count:N0} / {text.Length:N0}";
                 await Task.Delay(gap, cts.Token);
             }
             status.Text = "입력 전송 완료 · 대상 창에서 결과를 확인하세요.";
         }
-        catch (OperationCanceledException) { if (!closing) status.Text = "중지됨 · 다시 시작하면 처음부터 입력합니다."; }
-        catch (Exception ex) { if (!closing) MessageBox.Show(this, ex.Message, "입력 실패"); }
+        catch (OperationCanceledException) { if (!closing) status.Text = "중지됨 · 저장 위치에서 시작하면 이어 입력합니다. F8은 처음부터 시작합니다."; }
+        catch (Exception ex) { ErrorLog.Write(ex, "입력 실패"); if (!closing) ReportError(ex, "입력 실패"); }
         finally
         {
+            SaveCheckpoint(true);
             if (!closing)
             {
                 Native.UnregisterHotKey(Handle, 3);
                 start.Enabled = choose.Enabled = true;
                 pause.Enabled = false;
                 pause.Text = "일시정지 (F10)";
+                preview.ReadOnly = false;
             }
             paused = false;
             resumeAt = 0;
             cancellation = null;
-            UpdateEstimate();
+            if (!closing) { UpdateEstimate(); UpdateProgress(); }
         }
     }
 }
@@ -405,6 +441,8 @@ sealed class UserSettings
     public bool AlwaysOnTop { get; set; }
     public bool MinimizeOnStart { get; set; }
     public int FontSize { get; set; } = 12;
+    public bool SaveWork { get; set; } = true;
+    public bool CheckUpdatesOnStart { get; set; }
 }
 
 sealed class ThemeColors(bool dark) : ProfessionalColorTable
@@ -428,6 +466,7 @@ sealed class ThemeColors(bool dark) : ProfessionalColorTable
 
 static class Native
 {
+    [DllImport("user32.dll")] internal static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] internal static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint count, INPUT[] inputs, int size);
