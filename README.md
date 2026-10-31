@@ -1,5 +1,7 @@
 # AutoInput — 문서 자동 입력 v1.1.0
 
+[공식 웹사이트 · 사용 안내 및 다운로드](https://auto-input-windows.bits-to-bytes.workers.dev/)
+
 Windows x64 / C# Windows Forms. TXT·DOCX 내용을 클립보드 없이 키보드 이벤트로 한 글자씩 입력합니다. .NET과 Python을 별도로 설치할 필요가 없습니다.
 
 ## 설치 및 제거
