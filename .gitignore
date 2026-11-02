@@ -3,3 +3,6 @@ obj/
 .vs/
 .dotnet/
 *.user
+tools/
+dist/
+*.zip

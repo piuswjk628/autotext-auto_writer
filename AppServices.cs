@@ -62,7 +62,7 @@ sealed record SavedWork(string Text, int Offset, string DocumentName)
 sealed record ReleaseInfo(Version Version, string Tag);
 static class UpdateService
 {
-    internal static readonly Version CurrentVersion = new(1, 1, 0);
+    internal static readonly Version CurrentVersion = new(1, 2, 0);
     internal static ReleaseInfo Parse(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -75,7 +75,7 @@ static class UpdateService
     {
         using var client = handler == null ? new HttpClient() : new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(12);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoInput/1.1.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoInput/1.2.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         using var response = await client.GetAsync("https://api.github.com/repos/piuswjk628/autotext-auto_writer/releases/latest", token);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;

@@ -9,6 +9,8 @@ sealed partial class MainForm
     readonly Label progressText = new() { AutoSize = true };
     readonly Button restore = new() { Text = "저장 위치에서 시작", AutoSize = true, Enabled = false };
     bool saveWorkEnabled = true, checkUpdatesOnStart, restoringWork;
+    bool inputWrapEnabled;
+    int inputWrapWidth = 80;
     bool checkingUpdates, modalOpen;
     int checkpointOffset;
     string documentName = "직접 입력", inputSnapshot = "";
@@ -117,12 +119,18 @@ sealed partial class MainForm
         modalOpen = true;
         try
         {
-            using var dialog = new Form { Text = "설정", ClientSize = new Size(530, 495), MinimumSize = new Size(530, 495),
+            using var dialog = new Form { Text = "설정", ClientSize = new Size(550, 590), MinimumSize = new Size(550, 590),
                 StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false, Icon = Icon };
             var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
             CheckBox Check(string label, bool value) { var c = new CheckBox { Text = label, Checked = value, AutoSize = true }; panel.Controls.Add(c); return c; }
             var dark = Check("다크 모드", darkMode.Checked);
             var wrap = Check("미리보기 자동 줄바꿈", wordWrap.Checked);
+            var inputWrap = Check("실제 입력 자동 줄바꿈 (Enter 키 입력)", inputWrapEnabled);
+            var wrapLine = new FlowLayoutPanel { AutoSize = true };
+            wrapLine.Controls.Add(new Label { Text = "한 줄 글자 수", AutoSize = true });
+            var width = new NumericUpDown { Minimum = 1, Maximum = 10000, Value = inputWrapWidth, Width = 100, Enabled = inputWrap.Checked };
+            inputWrap.CheckedChanged += (_, _) => width.Enabled = inputWrap.Checked;
+            wrapLine.Controls.Add(width); panel.Controls.Add(wrapLine);
             var top = Check("항상 위에 표시", alwaysOnTop.Checked);
             var minimize = Check("입력 시작 시 창 최소화", minimizeOnStart.Checked);
             var save = Check("중단 위치 자동 저장 (문서 내용도 이 PC에 저장)", saveWorkEnabled);
@@ -138,7 +146,7 @@ sealed partial class MainForm
             var ok = new Button { Text = "저장", DialogResult = DialogResult.OK };
             var cancel = new Button { Text = "취소", DialogResult = DialogResult.Cancel };
             var reset = new Button { Text = "기본값", AutoSize = true };
-            reset.Click += (_, _) => { dark.Checked = wrap.Checked = top.Checked = minimize.Checked = updates.Checked = false; save.Checked = true; size.SelectedItem = 12; wait.Value = 5; speed.Value = 30; };
+            reset.Click += (_, _) => { dark.Checked = wrap.Checked = inputWrap.Checked = top.Checked = minimize.Checked = updates.Checked = false; width.Value = 80; save.Checked = true; size.SelectedItem = 12; wait.Value = 5; speed.Value = 30; };
             actions.Controls.AddRange([ok, cancel, reset]); panel.Controls.Add(actions);
             dialog.Controls.Add(panel); dialog.AcceptButton = ok; dialog.CancelButton = cancel;
             PaintControls(dialog);
@@ -148,6 +156,7 @@ sealed partial class MainForm
             {
                 darkMode.Checked = dark.Checked; wordWrap.Checked = wrap.Checked; alwaysOnTop.Checked = top.Checked; minimizeOnStart.Checked = minimize.Checked;
                 saveWorkEnabled = save.Checked; checkUpdatesOnStart = updates.Checked;
+                inputWrapEnabled = inputWrap.Checked; inputWrapWidth = (int)width.Value;
                 SetEditorFont((int)size.SelectedItem!); delay.Value = wait.Value; interval.Value = speed.Value;
             }
             finally { loadingSettings = false; }

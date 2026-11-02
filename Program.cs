@@ -192,6 +192,8 @@ sealed partial class MainForm : Form
             minimizeOnStart.Checked = settings.MinimizeOnStart;
             saveWorkEnabled = settings.SaveWork;
             checkUpdatesOnStart = settings.CheckUpdatesOnStart;
+            inputWrapEnabled = settings.InputWrap;
+            inputWrapWidth = Math.Clamp(settings.InputWrapWidth, 1, 10000);
             SetEditorFont(new[] { 10, 12, 14, 16, 18, 22 }.Contains(settings.FontSize) ? settings.FontSize : 12);
             delay.Value = Math.Clamp(settings.Delay, delay.Minimum, delay.Maximum);
             interval.Value = Math.Clamp(settings.Interval, 1, 1000);
@@ -212,6 +214,7 @@ sealed partial class MainForm : Form
                 DarkMode = darkMode.Checked, WordWrap = wordWrap.Checked,
                 AlwaysOnTop = alwaysOnTop.Checked, MinimizeOnStart = minimizeOnStart.Checked, FontSize = editorFontSize,
                 SaveWork = saveWorkEnabled, CheckUpdatesOnStart = checkUpdatesOnStart,
+                InputWrap = inputWrapEnabled, InputWrapWidth = inputWrapWidth,
                 Delay = delay.Value, Interval = (int)interval.Value }));
             File.Move(temporary, SettingsPath, true);
         }
@@ -380,6 +383,8 @@ sealed partial class MainForm : Form
         preview.ReadOnly = true;
         decimal wait = delay.Value;
         int gap = (int)interval.Value;
+        int wrapWidth = inputWrapEnabled ? inputWrapWidth : 0;
+        int column = InputWrap.ColumnAt(text[..offset], wrapWidth);
         startupRemaining = wait;
         remainingCharacters = text[offset..].EnumerateRunes().Count();
         activeGap = gap;
@@ -401,7 +406,7 @@ sealed partial class MainForm : Form
             foreach (var rune in text[offset..].EnumerateRunes())
             {
                 await WaitUntilReady(cts.Token);
-                SendCharacter(rune.ToString());
+                SendCharacter(InputWrap.Next(rune, ref column, wrapWidth));
                 remainingCharacters--;
                 count += rune.Utf16SequenceLength;
                 checkpointOffset = count;
@@ -443,6 +448,8 @@ sealed class UserSettings
     public int FontSize { get; set; } = 12;
     public bool SaveWork { get; set; } = true;
     public bool CheckUpdatesOnStart { get; set; }
+    public bool InputWrap { get; set; }
+    public int InputWrapWidth { get; set; } = 80;
 }
 
 sealed class ThemeColors(bool dark) : ProfessionalColorTable

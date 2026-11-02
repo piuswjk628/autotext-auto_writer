@@ -1,12 +1,10 @@
-# AutoInput — 문서 자동 입력 v1.1.0
-
-[공식 웹사이트 · 사용 안내 및 다운로드](https://auto-input-windows.bits-to-bytes.workers.dev/)
+# AutoInput — 문서 자동 입력 v1.2.0
 
 Windows x64 / C# Windows Forms. TXT·DOCX 내용을 클립보드 없이 키보드 이벤트로 한 글자씩 입력합니다. .NET과 Python을 별도로 설치할 필요가 없습니다.
 
 ## 설치 및 제거
 
-`dist/AutoInput-Setup-1.1.0-x64.msi`를 더블 클릭합니다. 현재 사용자용으로 `%LOCALAPPDATA%/Programs/AutoInput`에 설치하며 시작 메뉴·바탕화면 바로가기를 만듭니다. Windows 설정 → 앱 → 설치된 앱 → AutoInput → 제거에서 삭제합니다. 설정·오류 로그·저장 작업은 제거 시 보존합니다. 이 데이터까지 삭제하려면 프로그램을 종료하고 `%LOCALAPPDATA%/AutoInput` 폴더를 직접 삭제합니다.
+`dist/AutoInput-Setup-1.2.0-x64.msi`를 더블 클릭합니다. 현재 사용자용으로 `%LOCALAPPDATA%/Programs/AutoInput`에 설치하며 시작 메뉴·바탕화면 바로가기를 만듭니다. Windows 설정 → 앱 → 설치된 앱 → AutoInput → 제거에서 삭제합니다. 설정·오류 로그·저장 작업은 제거 시 보존합니다. 이 데이터까지 삭제하려면 프로그램을 종료하고 `%LOCALAPPDATA%/AutoInput` 폴더를 직접 삭제합니다.
 
 설치 없이 쓰려면 배포 ZIP의 `AutoInput.exe`를 실행합니다.
 
@@ -24,7 +22,7 @@ Windows x64 / C# Windows Forms. TXT·DOCX 내용을 클립보드 없이 키보�
 
 시작 대기는 0초부터 긴 시간까지 지정할 수 있습니다. 재개할 때도 지정된 대기 시간을 적용합니다. F8은 저장된 위치와 관계없이 처음부터 시작합니다. 대상 앱의 커서나 기존 내용은 자동 복원하지 않으므로 이어 입력 전 직접 맞추세요.
 
-## v1.1.0 개선 사항
+## v1.2.0 개선 사항
 
 ### 중단 위치 저장
 
@@ -46,7 +44,7 @@ Windows x64 / C# Windows Forms. TXT·DOCX 내용을 클립보드 없이 키보�
 
 ### 업데이트 확인
 
-도움말 → 업데이트 확인에서 `piuswjk628/autotext-auto_writer`의 공개된 최신 정식 GitHub Release를 확인합니다. 새 버전이 있으면 배포 페이지를 열 수 있습니다. 다운로드·설치는 직접 진행합니다. 자동 확인은 설정에서 켤 수 있으며 기본값은 꺼짐입니다. Release 태그는 `v1.1.0`, `v1.2.0` 같은 형식을 사용하세요. 공개 Release가 없거나 인터넷 연결이 실패하면 안내합니다.
+도움말 → 업데이트 확인에서 `piuswjk628/autotext-auto_writer`의 공개된 최신 정식 GitHub Release를 확인합니다. 새 버전이 있으면 배포 페이지를 열 수 있습니다. 다운로드·설치는 직접 진행합니다. 자동 확인은 설정에서 켤 수 있으며 기본값은 꺼짐입니다. Release 태그는 `v1.2.0`, `v1.2.0` 같은 형식을 사용하세요. 공개 Release가 없거나 인터넷 연결이 실패하면 안내합니다.
 
 ## 참고 사항
 
@@ -73,3 +71,11 @@ powershell -ExecutionPolicy Bypass -File Installer/Build-Installer.ps1
 ```powershell
 dotnet run --project ../AutoInputChecks/AutoInputChecks.csproj
 ```
+
+## 실제 입력 자동 줄바꿈 (v1.2.0)
+
+설정 → ‘실제 입력 자동 줄바꿈 (Enter 키 입력)’을 켜고 한 줄 글자 수를 지정한 뒤 저장하세요. 기본 줄 길이는 80자이며 1~10,000자로 지정할 수 있습니다. 처음에는 꺼져 있습니다.
+
+예: 한 줄 5자로 설정하면 `ABCDEFGHIJ`는 `ABCDE`와 `FGHIJ` 두 줄로 입력됩니다. 원래 문서의 줄바꿈은 유지하며, 줄 끝에 불필요한 빈 줄은 추가하지 않습니다. 한글·이모지·공백·탭은 각각 한 글자로 계산합니다. 단어 중간에서도 지정한 글자 수에 맞춰 나뉩니다. 화면 폭을 측정하는 기능은 아닙니다.
+
+실제 Enter 키를 누르므로 채팅창에서는 메시지가 전송될 수 있습니다. 미리보기 자동 줄바꿈은 화면 표시만 바꾸며, 실제 입력 자동 줄바꿈은 대상 창에 Enter를 추가합니다. 원본 문서 내용은 수정하지 않습니다. 진행 중 설정을 바꾼 경우 실제 입력 줄바꿈 설정은 다음 입력 시작부터 적용됩니다.
